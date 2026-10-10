@@ -1,0 +1,53 @@
+const { test } = require('node:test');
+const assert = require('node:assert/strict');
+const express = require('express');
+const jwt = require('jsonwebtoken');
+test('song search supports arbitrary artists, deduplicates, caches, and authenticates', async t => {
+  const originalFetch = global.fetch;
+  const secret = process.env.JWT_ACCESS_SECRET;
+  t.after(() => { global.fetch = originalFetch; if (secret === undefined) delete process.env.JWT_ACCESS_SECRET; else process.env.JWT_ACCESS_SECRET = secret; });
+  let calls = 0;
+  const terms = [];
+  const track = { kind: 'song', trackId: 1, trackName: 'Song', artistName: 'Artist', collectionName: 'Album', artworkUrl100: 'https://example.com/cover.jpg' };
+  global.fetch = async url => {
+    calls++;
+    const params = new URL(url).searchParams;
+    terms.push(params.get('term'));
+    assert.equal(params.get('entity'), 'song');
+    assert.equal(params.get('media'), 'music');
+    return { ok: true, json: async () => ({ results: [track, { ...track, trackId: 2 }, { kind: 'music-video' }, { kind: 'song', trackId: 3 }] }) };
+  };
+  delete require.cache[require.resolve('../services/songSearch')];
+  const { searchSongs } = require('../services/songSearch');
+  const results = await Promise.all([searchSongs('Justin Bieber'), searchSongs('justin bieber')]);
+  assert.equal(calls, 1);
+  assert.equal(results[0].length, 1);
+  assert.equal(results[0][0].title, 'Song');
+  await searchSongs('Justin Bieber');
+  assert.equal(calls, 1);
+  await searchSongs('Son Tung M-TP');
+  assert.equal(terms[1], 'Son Tung M-TP');
+  global.fetch = async () => ({ ok: true, json: async () => ({ results: [] }) });
+  assert.deepEqual(await searchSongs('no songs'), []);
+  global.fetch = async () => ({ ok: false });
+  await assert.rejects(searchSongs('outage'), { status: 502 });
+  global.fetch = async () => ({ ok: true, json: async () => ({}) });
+  await assert.rejects(searchSongs('malformed'), { status: 502 });
+  process.env.JWT_ACCESS_SECRET = 'song-search-test';
+  delete require.cache[require.resolve('../routes/searchRoutes')];
+  const app = express();
+  app.use('/api', require('../routes/searchRoutes'));
+  const server = app.listen(0, '127.0.0.1');
+  await new Promise(resolve => server.once('listening', resolve));
+  t.after(() => new Promise(resolve => server.close(resolve)));
+  const base = `http://127.0.0.1:${server.address().port}/api/songs/search`;
+  const options = { headers: { Authorization: `Bearer ${jwt.sign({ userId: '507f1f77bcf86cd799439011' }, process.env.JWT_ACCESS_SECRET)}` } };
+  assert.equal((await originalFetch(`${base}?q=Justin%20Bieber`)).status, 401);
+  for (const query of ['', '?q=', '?q=%20', '?q=a&q=b', '?q=' + 'a'.repeat(201)]) {
+    assert.equal((await originalFetch(base + query, options)).status, 400);
+  }
+  const response = await originalFetch(`${base}?q=Justin%20Bieber`, options);
+  assert.equal(response.status, 200);
+  assert.equal((await response.json()).songs.length, 1);
+  assert.equal((await originalFetch(`${base}?q=another-outage`, options)).status, 502);
+});

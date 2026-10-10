@@ -1,0 +1,11 @@
+{
+	"version": "2.0.0",
+	"tasks": [
+		{
+			"label": "test-history-unauthenticated",
+			"type": "shell",
+			"command": "Set-Location .\\backend; try { Invoke-RestMethod -Uri 'http://localhost:3000/api/history' } catch { Write-Host $_.Exception.Message; Write-Host $_.ErrorDetails.Message; exit 1 }",
+			"isBackground": false
+		}
+	]
+}

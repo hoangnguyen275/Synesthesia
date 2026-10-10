@@ -1,0 +1,31 @@
+# Dependencies
+node_modules/
+
+# Local environment and secrets
+.env
+.env.*
+!.env.example
+*.pem
+*.key
+*.p8
+*.p12
+*.jks
+*.mobileprovision
+
+# Build output and caches
+.expo/
+dist/
+web-build/
+coverage/
+*.tsbuildinfo
+.metro-health-check*
+
+# Logs
+*.log
+npm-debug.*
+yarn-debug.*
+yarn-error.*
+
+# Operating system files
+.DS_Store
+Thumbs.db
